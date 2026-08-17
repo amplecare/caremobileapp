@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 
 import type { JobType, OutboxJob } from './policy';
+import { SCHEMA_V1, SCHEMA_VERSION, SQL } from './sql';
 
 /**
  * SQLite persistence for the outbox.
@@ -44,40 +45,11 @@ async function migrate(database: SQLite.SQLiteDatabase): Promise<void> {
   );
   const version = row?.user_version ?? 0;
 
-  if (version < 1) {
-    await database.execAsync(`
-      CREATE TABLE IF NOT EXISTS outbox (
-        id             TEXT PRIMARY KEY NOT NULL,
-        type           TEXT NOT NULL,
-        stream_key     TEXT NOT NULL,
-        payload        TEXT NOT NULL,
-        status         TEXT NOT NULL DEFAULT 'queued',
-        attempts       INTEGER NOT NULL DEFAULT 0,
-        next_attempt_at INTEGER,
-        created_at     INTEGER NOT NULL,
-        last_error     TEXT
-      );
-
-      -- Drains read by stream and creation order on every pass.
-      CREATE INDEX IF NOT EXISTS idx_outbox_stream ON outbox(stream_key, created_at);
-      CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status);
-
-      -- Read-through cache of the carer's schedule so TODAY paints instantly
-      -- from disk, before any network call.
-      CREATE TABLE IF NOT EXISTS visits (
-        id             TEXT PRIMARY KEY NOT NULL,
-        client_name    TEXT NOT NULL,
-        address        TEXT,
-        visit_type     TEXT,
-        scheduled_start TEXT NOT NULL,
-        scheduled_end   TEXT NOT NULL,
-        status         TEXT NOT NULL,
-        synced_at      INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_visits_start ON visits(scheduled_start);
-
-      PRAGMA user_version = 1;
-    `);
+  if (version < SCHEMA_VERSION) {
+    // Same DDL string the Node tests execute against a real SQLite database,
+    // so a schema typo fails in CI rather than on a carer's phone.
+    await database.execAsync(SCHEMA_V1);
+    await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 }
 
@@ -131,8 +103,7 @@ export async function enqueue(
   await database.withTransactionAsync(async () => {
     if (localWrite) await localWrite(database);
     await database.runAsync(
-      `INSERT INTO outbox (id, type, stream_key, payload, status, attempts, next_attempt_at, created_at, last_error)
-       VALUES (?, ?, ?, ?, 'queued', 0, NULL, ?, NULL)`,
+      SQL.insertJob,
       id,
       type,
       streamKey,
@@ -147,15 +118,13 @@ export async function enqueue(
 /** Everything still owed to the server, oldest first. */
 export async function allJobs(): Promise<OutboxJob[]> {
   const database = await getDb();
-  const rows = await database.getAllAsync<OutboxRow>(
-    'SELECT * FROM outbox ORDER BY created_at ASC',
-  );
+  const rows = await database.getAllAsync<OutboxRow>(SQL.allJobs);
   return rows.map(toJob);
 }
 
 export async function markSending(id: string): Promise<void> {
   const database = await getDb();
-  await database.runAsync("UPDATE outbox SET status = 'sending' WHERE id = ?", id);
+  await database.runAsync(SQL.markSending, id);
 }
 
 /** Applies a policy transition. `done` removes the row; nothing else does. */
@@ -165,11 +134,11 @@ export async function applyTransition(
 ): Promise<void> {
   const database = await getDb();
   if (t.done) {
-    await database.runAsync('DELETE FROM outbox WHERE id = ?', id);
+    await database.runAsync(SQL.deleteJob, id);
     return;
   }
   await database.runAsync(
-    'UPDATE outbox SET status = ?, attempts = ?, next_attempt_at = ?, last_error = ? WHERE id = ?',
+    SQL.updateJob,
     t.status,
     t.attempts,
     t.nextAttemptAt,
@@ -187,17 +156,12 @@ export async function applyTransition(
  */
 export async function recoverInterrupted(): Promise<number> {
   const database = await getDb();
-  const result = await database.runAsync(
-    "UPDATE outbox SET status = 'queued' WHERE status = 'sending'",
-  );
+  const result = await database.runAsync(SQL.recoverInterrupted);
   return result.changes ?? 0;
 }
 
 /** Manual retry from the "needs attention" list. Resets the attempt budget. */
 export async function retryJob(id: string): Promise<void> {
   const database = await getDb();
-  await database.runAsync(
-    "UPDATE outbox SET status = 'queued', attempts = 0, next_attempt_at = NULL, last_error = NULL WHERE id = ?",
-    id,
-  );
+  await database.runAsync(SQL.retryJob, id);
 }
