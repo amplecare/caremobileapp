@@ -1,0 +1,67 @@
+{
+  "expo": {
+    "name": "AmpleCare",
+    "slug": "amplecare-carer",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "amplecare",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.amplecare.carer",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "AmpleCare records where you check in and out of a visit, so your agency can evidence that care was delivered. Your location is only read while the app is open.",
+        "NSCameraUsageDescription": "Take photos as part of a visit record or an incident report.",
+        "NSMicrophoneUsageDescription": "Record a spoken care note instead of typing it.",
+        "NSFaceIDUsageDescription": "Unlock AmpleCare without typing your password."
+      }
+    },
+    "android": {
+      "package": "com.amplecare.carer",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#FBFAF8"
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "USE_BIOMETRIC",
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AmpleCare records where you check in and out of a visit."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Unlock AmpleCare without typing your password."
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FBFAF8"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
