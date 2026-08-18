@@ -11,7 +11,7 @@
  */
 
 /** Bumped whenever DDL changes; drives `PRAGMA user_version` migrations. */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SCHEMA_V1 = `
   CREATE TABLE IF NOT EXISTS outbox (
@@ -40,6 +40,27 @@ export const SCHEMA_V1 = `
     synced_at       INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_visits_start ON visits(scheduled_start);
+`;
+
+/**
+ * Care-note drafts.
+ *
+ * Separate from the outbox on purpose. An outbox job is work the carer has
+ * COMMITTED to — they pressed save and it is going to the agency. A draft is
+ * half a sentence typed while the kettle boils, and it must survive a
+ * force-quit, a flat battery or a slammed car door without ever being sent
+ * anywhere.
+ *
+ * One row per visit, overwritten on every keystroke. Cheap: SQLite handles
+ * thousands of small writes a second, and losing a carer's account of a fall
+ * because we debounced too aggressively is not a trade worth making.
+ */
+export const SCHEMA_V2 = `
+  CREATE TABLE IF NOT EXISTS note_drafts (
+    visit_id   TEXT PRIMARY KEY NOT NULL,
+    body       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `;
 
 export const SQL = {
@@ -96,4 +117,28 @@ export const SQL = {
   `,
 
   setVisitStatus: 'UPDATE visits SET status = ? WHERE id = ?',
+
+  /** Overwrites the draft for a visit. Called on every keystroke. */
+  saveDraft: `
+    INSERT INTO note_drafts (visit_id, body, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(visit_id) DO UPDATE SET
+      body       = excluded.body,
+      updated_at = excluded.updated_at
+  `,
+
+  getDraft: 'SELECT body, updated_at FROM note_drafts WHERE visit_id = ?',
+
+  /**
+   * Removed only once the note is safely in the outbox — never on navigating
+   * away, never on a timer.
+   */
+  deleteDraft: 'DELETE FROM note_drafts WHERE visit_id = ?',
+
+  /** Anything still half-written, so TODAY can nudge: "unfinished note". */
+  pendingDrafts: `
+    SELECT visit_id, body, updated_at FROM note_drafts
+     WHERE TRIM(body) <> ''
+     ORDER BY updated_at DESC
+  `,
 } as const;

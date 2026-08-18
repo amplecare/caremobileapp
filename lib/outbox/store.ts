@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 
 import type { JobType, OutboxJob } from './policy';
-import { SCHEMA_V1, SCHEMA_VERSION, SQL } from './sql';
+import { SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION, SQL } from './sql';
 
 /**
  * SQLite persistence for the outbox.
@@ -45,10 +45,10 @@ async function migrate(database: SQLite.SQLiteDatabase): Promise<void> {
   );
   const version = row?.user_version ?? 0;
 
+  // Stepwise so an existing install upgrades without losing queued work.
+  if (version < 1) await database.execAsync(SCHEMA_V1);
+  if (version < 2) await database.execAsync(SCHEMA_V2);
   if (version < SCHEMA_VERSION) {
-    // Same DDL string the Node tests execute against a real SQLite database,
-    // so a schema typo fails in CI rather than on a carer's phone.
-    await database.execAsync(SCHEMA_V1);
     await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }
 }
@@ -164,4 +164,30 @@ export async function recoverInterrupted(): Promise<number> {
 export async function retryJob(id: string): Promise<void> {
   const database = await getDb();
   await database.runAsync(SQL.retryJob, id);
+}
+
+// ---------------------------------------------------------------------------
+// Care-note drafts — "never lose a word"
+// ---------------------------------------------------------------------------
+
+/** Called on every keystroke. Overwrites in place; no history kept. */
+export async function saveDraft(visitId: string, body: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(SQL.saveDraft, visitId, body, Date.now());
+}
+
+/** Restores a half-written note after a force-quit or a crash. */
+export async function getDraft(visitId: string): Promise<string | null> {
+  const database = await getDb();
+  const row = await database.getFirstAsync<{ body: string }>(SQL.getDraft, visitId);
+  return row?.body ?? null;
+}
+
+/**
+ * Only ever called after the note has been queued in the outbox. Deleting a
+ * draft any earlier risks throwing away words the agency never received.
+ */
+export async function clearDraft(visitId: string): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(SQL.deleteDraft, visitId);
 }

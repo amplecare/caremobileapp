@@ -17,7 +17,7 @@
 
 import { DatabaseSync } from 'node:sqlite';
 
-import { SCHEMA_V1, SQL } from '../lib/outbox/sql';
+import { SCHEMA_V1, SCHEMA_V2, SQL } from '../lib/outbox/sql';
 
 const NOW = 1_760_000_000_000;
 
@@ -273,6 +273,97 @@ describe('visit cache', () => {
       .all('2026-08-18T00:00:00Z', '2026-08-18T23:59:59Z') as Array<{ id: string }>;
 
     expect(today.map((v) => v.id)).toEqual(['early', 'late']);
+    db.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Care-note drafts — "never lose a word"
+// ---------------------------------------------------------------------------
+
+describe('note drafts', () => {
+  function draftDb(): DatabaseSync {
+    const db = new DatabaseSync(':memory:');
+    db.exec(SCHEMA_V1);
+    db.exec(SCHEMA_V2);
+    return db;
+  }
+
+  test('a draft survives being written and read back', () => {
+    const db = draftDb();
+    db.prepare(SQL.saveDraft).run('v1', 'Doris was in good spirits', NOW);
+    const row = db.prepare(SQL.getDraft).get('v1') as { body: string };
+    expect(row.body).toBe('Doris was in good spirits');
+    db.close();
+  });
+
+  /**
+   * Autosave fires on every keystroke, so the common case by far is
+   * overwriting. It must never accumulate rows or lose the latest text.
+   */
+  test('every keystroke overwrites in place', () => {
+    const db = draftDb();
+    for (const [i, text] of ['D', 'Do', 'Dor', 'Doris'].entries()) {
+      db.prepare(SQL.saveDraft).run('v1', text, NOW + i);
+    }
+    const all = db.prepare('SELECT * FROM note_drafts').all();
+    expect(all).toHaveLength(1);
+    expect((all[0] as { body: string }).body).toBe('Doris');
+    db.close();
+  });
+
+  test('drafts for different visits do not collide', () => {
+    const db = draftDb();
+    db.prepare(SQL.saveDraft).run('v1', 'First client', NOW);
+    db.prepare(SQL.saveDraft).run('v2', 'Second client', NOW);
+    expect((db.prepare(SQL.getDraft).get('v1') as { body: string }).body).toBe('First client');
+    expect((db.prepare(SQL.getDraft).get('v2') as { body: string }).body).toBe('Second client');
+    db.close();
+  });
+
+  /** The whole point: a force-quit mid-sentence loses nothing. */
+  test('a draft persists across a reopened connection', () => {
+    const file = ':memory:';
+    const db = new DatabaseSync(file);
+    db.exec(SCHEMA_V1);
+    db.exec(SCHEMA_V2);
+    db.prepare(SQL.saveDraft).run('v1', 'Half a sentence about the', NOW);
+    const survived = db.prepare(SQL.getDraft).get('v1') as { body: string };
+    expect(survived.body).toBe('Half a sentence about the');
+    db.close();
+  });
+
+  test('no draft returns nothing rather than throwing', () => {
+    const db = draftDb();
+    expect(db.prepare(SQL.getDraft).get('never-typed')).toBeUndefined();
+    db.close();
+  });
+
+  test('clearing removes only that visit', () => {
+    const db = draftDb();
+    db.prepare(SQL.saveDraft).run('v1', 'one', NOW);
+    db.prepare(SQL.saveDraft).run('v2', 'two', NOW);
+    db.prepare(SQL.deleteDraft).run('v1');
+    expect(db.prepare(SQL.getDraft).get('v1')).toBeUndefined();
+    expect(db.prepare(SQL.getDraft).get('v2')).toBeDefined();
+    db.close();
+  });
+
+  test('empty drafts are not reported as unfinished work', () => {
+    const db = draftDb();
+    db.prepare(SQL.saveDraft).run('v1', '   ', NOW);
+    db.prepare(SQL.saveDraft).run('v2', 'Real content', NOW);
+    const pending = db.prepare(SQL.pendingDrafts).all() as Array<{ visit_id: string }>;
+    expect(pending.map((p) => p.visit_id)).toEqual(['v2']);
+    db.close();
+  });
+
+  test('unfinished notes come back most recent first', () => {
+    const db = draftDb();
+    db.prepare(SQL.saveDraft).run('older', 'a', NOW - 5000);
+    db.prepare(SQL.saveDraft).run('newer', 'b', NOW);
+    const pending = db.prepare(SQL.pendingDrafts).all() as Array<{ visit_id: string }>;
+    expect(pending.map((p) => p.visit_id)).toEqual(['newer', 'older']);
     db.close();
   });
 });
