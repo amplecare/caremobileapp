@@ -17,7 +17,7 @@ import { SCHEMA_V1, SCHEMA_VERSION, SQL } from './sql';
  * TTL: a job waits a week if that is how long the carer is without signal.
  */
 
-const DB_NAME = 'amplecare.db';
+const DB_NAME = 'caremango.db';
 
 let db: SQLite.SQLiteDatabase | null = null;
 

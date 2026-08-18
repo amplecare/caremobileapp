@@ -47,7 +47,7 @@ const env = { ...loadEnv('../CareAi/.env.local'), ...loadEnv('.env'), ...process
 const URL = env.NEXT_PUBLIC_SUPABASE_URL ?? env.EXPO_PUBLIC_SUPABASE_URL;
 const ANON = env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const SERVICE = env.SUPABASE_SERVICE_ROLE_KEY;
-const EMAIL = env.DEMO_EMAIL ?? 'demo@amplecare.co.uk';
+const EMAIL = env.DEMO_EMAIL ?? 'demo@caremango.co.uk';
 const PASSWORD = env.DEMO_PASSWORD;
 
 if (!URL || !ANON || !PASSWORD) {

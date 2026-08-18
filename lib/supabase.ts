@@ -89,6 +89,6 @@ export const supabase = createClient(url ?? '', anonKey ?? '', {
     detectSessionInUrl: false,
   },
   global: {
-    headers: { 'x-client-info': 'amplecare-carer' },
+    headers: { 'x-client-info': 'caremango-carer' },
   },
 });

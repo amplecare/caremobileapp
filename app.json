@@ -1,24 +1,24 @@
 {
   "expo": {
-    "name": "AmpleCare",
-    "slug": "amplecare-carer",
+    "name": "Caremango",
+    "slug": "caremango-carer",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "amplecare",
+    "scheme": "caremango",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.amplecare.carer",
+      "bundleIdentifier": "com.caremango.carer",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "AmpleCare records where you check in and out of a visit, so your agency can evidence that care was delivered. Your location is only read while the app is open.",
+        "NSLocationWhenInUseUsageDescription": "Caremango records where you check in and out of a visit, so your agency can evidence that care was delivered. Your location is only read while the app is open.",
         "NSCameraUsageDescription": "Take photos as part of a visit record or an incident report.",
         "NSMicrophoneUsageDescription": "Record a spoken care note instead of typing it.",
-        "NSFaceIDUsageDescription": "Unlock AmpleCare without typing your password."
+        "NSFaceIDUsageDescription": "Unlock Caremango without typing your password."
       }
     },
     "android": {
-      "package": "com.amplecare.carer",
+      "package": "com.caremango.carer",
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
@@ -42,13 +42,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "AmpleCare records where you check in and out of a visit."
+          "locationWhenInUsePermission": "Caremango records where you check in and out of a visit."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Unlock AmpleCare without typing your password."
+          "faceIDPermission": "Unlock Caremango without typing your password."
         }
       ],
       [
