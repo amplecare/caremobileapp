@@ -2,7 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 
 import type { JobType, OutboxJob } from './policy';
-import { SCHEMA_V1, SCHEMA_V2, SCHEMA_VERSION, SQL } from './sql';
+import { SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION, SQL } from './sql';
 
 /**
  * SQLite persistence for the outbox.
@@ -48,6 +48,7 @@ async function migrate(database: SQLite.SQLiteDatabase): Promise<void> {
   // Stepwise so an existing install upgrades without losing queued work.
   if (version < 1) await database.execAsync(SCHEMA_V1);
   if (version < 2) await database.execAsync(SCHEMA_V2);
+  if (version < 3) await database.execAsync(SCHEMA_V3);
   if (version < SCHEMA_VERSION) {
     await database.execAsync(`PRAGMA user_version = ${SCHEMA_VERSION};`);
   }

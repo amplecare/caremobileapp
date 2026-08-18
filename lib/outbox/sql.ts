@@ -11,7 +11,7 @@
  */
 
 /** Bumped whenever DDL changes; drives `PRAGMA user_version` migrations. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_V1 = `
   CREATE TABLE IF NOT EXISTS outbox (
@@ -61,6 +61,26 @@ export const SCHEMA_V2 = `
     body       TEXT NOT NULL,
     updated_at INTEGER NOT NULL
   );
+`;
+
+/**
+ * Visit tasks and their completion state.
+ *
+ * Tasks come from the care plan and are cached per visit so the checklist
+ * renders offline. `completed_at` is the local truth the carer sees
+ * immediately; the outbox carries it to the server separately, which is why
+ * ticking a box never waits on a network call.
+ */
+export const SCHEMA_V3 = `
+  CREATE TABLE IF NOT EXISTS visit_tasks (
+    id           TEXT PRIMARY KEY NOT NULL,
+    visit_id     TEXT NOT NULL,
+    label        TEXT NOT NULL,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    completed_at INTEGER,
+    notes        TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_visit_tasks_visit ON visit_tasks(visit_id, sort_order);
 `;
 
 export const SQL = {
@@ -134,6 +154,19 @@ export const SQL = {
    * away, never on a timer.
    */
   deleteDraft: 'DELETE FROM note_drafts WHERE visit_id = ?',
+
+  upsertTask: `
+    INSERT INTO visit_tasks (id, visit_id, label, sort_order, completed_at, notes)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      label      = excluded.label,
+      sort_order = excluded.sort_order
+  `,
+
+  tasksForVisit: 'SELECT * FROM visit_tasks WHERE visit_id = ? ORDER BY sort_order ASC',
+
+  /** Ticking and un-ticking are the same statement — null clears it. */
+  setTaskCompleted: 'UPDATE visit_tasks SET completed_at = ? WHERE id = ?',
 
   /** Anything still half-written, so TODAY can nudge: "unfinished note". */
   pendingDrafts: `
