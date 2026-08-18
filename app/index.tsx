@@ -1,9 +1,11 @@
-import { useMemo } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 
+import { CheckInSheet } from '../components/CheckInSheet';
 import { SyncBadge } from '../components/SyncBadge';
+import { useCheckInLocation } from '../hooks/useCheckInLocation';
+import { enqueue } from '../lib/outbox/store';
 import { colors, font, radius, touch, type } from '../theme/tokens';
 
 /**
@@ -29,30 +31,77 @@ interface Visit {
   end: string;
   minutes: number;
   status: VisitStatus;
+  /** The address geocoded. Null when the agency has not recorded one. */
+  lat: number | null;
+  lng: number | null;
 }
 
 const VISITS: Visit[] = [
-  { id: '1', clientName: 'Albert Nkemdi', address: '55 Broughton Lane, Salford', visitType: 'Personal care', start: '08:00', end: '08:45', minutes: 45, status: 'completed' },
-  { id: '2', clientName: 'Doris Fenwick', address: '22 Bury New Road, Manchester', visitType: 'Personal care', start: '09:15', end: '10:00', minutes: 45, status: 'in_progress' },
-  { id: '3', clientName: 'Ronald Pike', address: '7 Kersal Way, Salford', visitType: 'Medication', start: '11:00', end: '11:45', minutes: 45, status: 'scheduled' },
-  { id: '4', clientName: 'Maureen Ellis', address: '104 Cheetham Hill Road', visitType: 'Domestic', start: '13:00', end: '14:00', minutes: 60, status: 'scheduled' },
+  { id: '1', clientName: 'Albert Nkemdi', address: '55 Broughton Lane, Salford', visitType: 'Personal care', start: '08:00', end: '08:45', minutes: 45, status: 'completed', lat: 53.5012, lng: -2.2701 },
+  { id: '2', clientName: 'Doris Fenwick', address: '22 Bury New Road, Manchester', visitType: 'Personal care', start: '09:15', end: '10:00', minutes: 45, status: 'in_progress', lat: 53.4934, lng: -2.2361 },
+  { id: '3', clientName: 'Ronald Pike', address: '7 Kersal Way, Salford', visitType: 'Medication', start: '11:00', end: '11:45', minutes: 45, status: 'scheduled', lat: 53.5089, lng: -2.2812 },
+  { id: '4', clientName: 'Maureen Ellis', address: '104 Cheetham Hill Road', visitType: 'Domestic', start: '13:00', end: '14:00', minutes: 60, status: 'scheduled', lat: null, lng: null },
 ];
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [visits, setVisits] = useState<Visit[]>(VISITS);
 
   // The hero is whatever the carer should be thinking about: the visit in
   // progress, or failing that the next one due. Everything else is a row.
   const { hero, upcoming, done } = useMemo(() => {
-    const live = VISITS.find((v) => v.status === 'in_progress');
-    const next = VISITS.find((v) => v.status === 'scheduled');
+    const live = visits.find((v) => v.status === 'in_progress');
+    const next = visits.find((v) => v.status === 'scheduled');
     const heroVisit = live ?? next ?? null;
     return {
       hero: heroVisit,
-      upcoming: VISITS.filter((v) => v.status === 'scheduled' && v.id !== heroVisit?.id),
-      done: VISITS.filter((v) => v.status === 'completed'),
+      upcoming: visits.filter((v) => v.status === 'scheduled' && v.id !== heroVisit?.id),
+      done: visits.filter((v) => v.status === 'completed'),
     };
-  }, []);
+  }, [visits]);
+
+  // Only ask for a fix while the sheet is open — no point warming the GPS
+  // radio for a screen the carer is only glancing at.
+  const clientPoint = useMemo(
+    () => (hero ? { lat: hero.lat, lng: hero.lng } : null),
+    [hero],
+  );
+  const { verdict, locating, coords, retry } = useCheckInLocation(clientPoint, sheetOpen);
+
+  /**
+   * Writes the check-in locally and queues it, in one transaction. The UI
+   * flips immediately; the outbox delivers whenever there is signal.
+   */
+  const confirmCheckIn = useCallback(
+    async ({ coords: c, reason }: { coords: { lat: number; lng: number; accuracy?: number | null } | null; reason: string | null }) => {
+      if (!hero) return;
+      const checkingIn = hero.status !== 'in_progress';
+      const at = new Date().toISOString();
+
+      setVisits((prev) =>
+        prev.map((v) =>
+          v.id === hero.id
+            ? { ...v, status: checkingIn ? 'in_progress' : 'completed' }
+            : v,
+        ),
+      );
+      setSheetOpen(false);
+
+      try {
+        await enqueue(
+          checkingIn ? 'visit.check_in' : 'visit.check_out',
+          `visit-${hero.id}`,
+          { visitId: hero.id, at, lat: c?.lat, lng: c?.lng, reason },
+        );
+      } catch {
+        // The local flip already happened; tell the carer plainly rather than
+        // silently pretending it is queued.
+        Alert.alert('Not saved', 'Something went wrong storing that. Please try again.');
+      }
+    },
+    [hero],
+  );
 
   const today = new Date().toLocaleDateString('en-GB', {
     weekday: 'long',
@@ -93,10 +142,29 @@ export default function TodayScreen() {
           </Section>
         )}
 
-        {VISITS.length === 0 && <Text style={styles.empty}>No visits today.</Text>}
+        {visits.length === 0 && <Text style={styles.empty}>No visits today.</Text>}
       </ScrollView>
 
-      {hero && <ActionBar visit={hero} bottomInset={insets.bottom} />}
+      {hero && (
+        <ActionBar
+          visit={hero}
+          bottomInset={insets.bottom}
+          onPress={() => setSheetOpen(true)}
+        />
+      )}
+
+      {hero && (
+        <CheckInSheet
+          visible={sheetOpen}
+          clientName={hero.clientName}
+          verdict={verdict}
+          locating={locating}
+          coords={coords}
+          onRetryLocation={retry}
+          onCancel={() => setSheetOpen(false)}
+          onConfirm={confirmCheckIn}
+        />
+      )}
     </View>
   );
 }
@@ -187,7 +255,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * Its label always states the next thing to do, so a carer never has to work
  * out where they are in the flow: CHECK IN → (tasks) → CHECK OUT.
  */
-function ActionBar({ visit, bottomInset }: { visit: Visit; bottomInset: number }) {
+function ActionBar({
+  visit,
+  bottomInset,
+  onPress,
+}: {
+  visit: Visit;
+  bottomInset: number;
+  onPress: () => void;
+}) {
   const label = visit.status === 'in_progress' ? 'Check out' : 'Check in';
 
   return (
@@ -195,13 +271,7 @@ function ActionBar({ visit, bottomInset }: { visit: Visit; bottomInset: number }
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label} for ${visit.clientName}`}
-        onPress={() => {
-          // Haptics are how a carer knows it worked without looking at the
-          // screen — one of only four events in the app that fire them.
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-            () => {},
-          );
-        }}
+        onPress={onPress}
         style={({ pressed }) => [
           styles.actionButton,
           { backgroundColor: pressed ? colors.nowDeep : colors.now },
