@@ -79,7 +79,7 @@ export interface Payloads {
   'visit.photo': { visitId: string; localUri?: string; fileUrl?: string; fileType: string; caption?: string };
   'medication.record': { medicationId: string; visitId: string; outcome: string; at: string; scheduledTime?: string; refusalReason?: string; notes?: string; witnessedBy?: string };
   'incident.create': { serviceUserId: string; category: string; description: string; isSafeguarding?: boolean; immediateAction?: string };
-  'message.send': { body: string; visitId?: string };
+  'message.send': { body: string; visitId?: string; toId?: string; isUrgent?: boolean };
   'availability.update': { dayOfWeek: string; startTime: string; endTime: string; effectiveFrom: string };
 }
 
@@ -236,12 +236,25 @@ const handlers: Record<JobType, Handler> = {
     return { error };
   },
 
+  /**
+   * Carer to office.
+   *
+   * This previously targeted `family_messages` with columns that do not
+   * exist (`sender_id`, `body`) — it would have failed with 42703 and retried
+   * five times before giving up. `family_messages` is the family portal's
+   * table and requires a service_user_id, which a message like "can someone
+   * cover my 4pm?" does not have. Migration 13 added `staff_messages` for
+   * this, with a nullable `to_id` meaning "the office".
+   */
   'message.send': async (ctx, job, p) => {
-    const { error } = await ctx.supabase.from('family_messages').insert({
+    const { error } = await ctx.supabase.from('staff_messages').insert({
       id: job.id,
       organisation_id: ctx.organisationId,
-      sender_id: ctx.userId,
-      body: p.body as string,
+      from_id: ctx.userId,
+      to_id: (p.toId as string) ?? null,
+      visit_id: (p.visitId as string) ?? null,
+      message: p.body as string,
+      is_urgent: Boolean(p.isUrgent),
     });
     return { error };
   },

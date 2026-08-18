@@ -123,7 +123,25 @@ export default function TodayScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.date}>{today}</Text>
-          <SyncBadge state="synced" />
+          <View style={styles.headerRight}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Message the office"
+              onPress={() =>
+                router.push({
+                  pathname: '/message',
+                  params: hero
+                    ? { visitId: hero.id, clientName: hero.clientName }
+                    : {},
+                })
+              }
+              hitSlop={8}
+              style={({ pressed }) => [styles.messageChip, pressed && { backgroundColor: colors.surfaceSunk }]}
+            >
+              <Text style={styles.messageChipText}>Office</Text>
+            </Pressable>
+            <SyncBadge state="synced" />
+          </View>
         </View>
 
         {hero && <HeroVisit visit={hero} />}
@@ -363,6 +381,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   date: { fontFamily: font.semibold, fontSize: type.title, color: colors.ink },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  messageChip: {
+    minHeight: touch.tap,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+  },
+  messageChipText: { fontFamily: font.semibold, fontSize: type.micro, color: colors.now },
   empty: {
     marginTop: 96,
     textAlign: 'center',

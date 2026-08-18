@@ -237,3 +237,35 @@ describe('outcomes', () => {
     expect((await createSender(ctx)(bad)).kind).toBe('permanent');
   });
 });
+
+describe('message.send — regression', () => {
+  /**
+   * This handler shipped in Stage 2c writing `sender_id` and `body` to
+   * `family_messages`. Neither column exists: it would have failed with 42703
+   * and burned five retries before surfacing. Caught while building Stage 5c.
+   */
+  test('writes to staff_messages with the columns that actually exist', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(job('message.send', { body: 'Can someone cover my 4pm?' }));
+
+    const call = calls[0]!;
+    expect(call.table).toBe('staff_messages');
+    expect(call.values.message).toBe('Can someone cover my 4pm?');
+    expect(call.values.from_id).toBe(USER);
+    expect(call.values).not.toHaveProperty('sender_id');
+    expect(call.values).not.toHaveProperty('body');
+  });
+
+  /** Null means "the office" — most carer messages have no named recipient. */
+  test('an unaddressed message goes to the office', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(job('message.send', { body: 'Running ten minutes late' }));
+    expect(calls[0]!.values.to_id).toBeNull();
+  });
+
+  test('urgency is carried so the alert engine can bypass quiet hours', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(job('message.send', { body: 'No answer at the door', isUrgent: true }));
+    expect(calls[0]!.values.is_urgent).toBe(true);
+  });
+});
