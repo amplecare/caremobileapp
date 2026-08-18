@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { CheckInSheet } from '../components/CheckInSheet';
 import { SyncBadge } from '../components/SyncBadge';
@@ -45,6 +46,7 @@ const VISITS: Visit[] = [
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [visits, setVisits] = useState<Visit[]>(VISITS);
 
@@ -150,6 +152,15 @@ export default function TodayScreen() {
           visit={hero}
           bottomInset={insets.bottom}
           onPress={() => setSheetOpen(true)}
+          onWriteNote={
+            hero.status === 'in_progress'
+              ? () =>
+                  router.push({
+                    pathname: '/note/[visitId]',
+                    params: { visitId: hero.id, clientName: hero.clientName },
+                  })
+              : undefined
+          }
         />
       )}
 
@@ -259,15 +270,29 @@ function ActionBar({
   visit,
   bottomInset,
   onPress,
+  onWriteNote,
 }: {
   visit: Visit;
   bottomInset: number;
   onPress: () => void;
+  /** Absent until the visit is under way — nothing to write about yet. */
+  onWriteNote?: () => void;
 }) {
   const label = visit.status === 'in_progress' ? 'Check out' : 'Check in';
 
   return (
     <View style={[styles.actionBar, { paddingBottom: bottomInset + 12 }]}>
+      {onWriteNote && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Write a care note for ${visit.clientName}`}
+          onPress={onWriteNote}
+          style={({ pressed }) => [styles.noteButton, pressed && { backgroundColor: colors.surfaceSunk }]}
+        >
+          <Text style={styles.noteLabel}>Write care note</Text>
+        </Pressable>
+      )}
+
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${label} for ${visit.clientName}`}
@@ -384,4 +409,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   actionLabel: { fontFamily: font.bold, fontSize: type.title, color: '#FFFFFF' },
+  noteButton: {
+    height: touch.tapLg,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  noteLabel: { fontFamily: font.semibold, fontSize: type.body, color: colors.ink },
 });
