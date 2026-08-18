@@ -105,21 +105,21 @@ export default function NoteScreen() {
       if (!skipConcernCheck) {
         const prompt = concernPrompt(detectConcerns(check.value));
         if (prompt) {
-          // Incident reporting lands in Stage 5. Until it exists there is no
-          // "report it" button here, because a button that goes nowhere is
-          // worse than no button — a carer would tap it, believe the incident
-          // was raised, and move on. The nudge still does its job: it makes
-          // them think about it while they are still with the client.
-          Alert.alert(
-            'Before you save',
-            `${prompt}
-
-Incident reporting is coming shortly. For now, please ring the office if this needs raising today.`,
-            [
-              { text: 'Go back and edit', style: 'cancel' },
-              { text: 'Save the note', onPress: () => void submit(true) },
-            ],
-          );
+          Alert.alert('Before you save', prompt, [
+            { text: 'No, just the note', style: 'cancel', onPress: () => void submit(true) },
+            {
+              text: 'Yes, report it',
+              onPress: () => {
+                // Save the note first so nothing is lost if they abandon the
+                // incident form half-way.
+                void submit(true);
+                router.push({
+                  pathname: '/incident/[visitId]',
+                  params: { visitId, clientName },
+                });
+              },
+            },
+          ]);
           return;
         }
       }

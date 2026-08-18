@@ -161,6 +161,12 @@ export default function TodayScreen() {
                   })
               : undefined
           }
+          onReportIncident={() =>
+            router.push({
+              pathname: '/incident/[visitId]',
+              params: { visitId: hero.id, clientName: hero.clientName },
+            })
+          }
           onOpenTasks={
             hero.status === 'in_progress'
               ? () =>
@@ -281,6 +287,7 @@ function ActionBar({
   onPress,
   onWriteNote,
   onOpenTasks,
+  onReportIncident,
 }: {
   visit: Visit;
   bottomInset: number;
@@ -289,11 +296,26 @@ function ActionBar({
   onWriteNote?: () => void;
   /** Absent until the visit is under way, same as the note button. */
   onOpenTasks?: () => void;
+  /**
+   * Always available, unlike the others. Something can go wrong before a
+   * carer has checked in — no answer at the door, or found unwell on arrival
+   * — and the report must not be gated behind starting the visit.
+   */
+  onReportIncident: () => void;
 }) {
   const label = visit.status === 'in_progress' ? 'Check out' : 'Check in';
 
   return (
     <View style={[styles.actionBar, { paddingBottom: bottomInset + 12 }]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Report an incident for ${visit.clientName}`}
+        onPress={onReportIncident}
+        style={({ pressed }) => [styles.incidentButton, pressed && { backgroundColor: colors.alertWash }]}
+      >
+        <Text style={styles.incidentLabel}>Report an incident</Text>
+      </Pressable>
+
       {onOpenTasks && (
         <Pressable
           accessibilityRole="button"
@@ -443,4 +465,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   noteLabel: { fontFamily: font.semibold, fontSize: type.body, color: colors.ink },
+  incidentButton: {
+    height: touch.tapLg,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.alert,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  incidentLabel: { fontFamily: font.semibold, fontSize: type.body, color: colors.alert },
 });
