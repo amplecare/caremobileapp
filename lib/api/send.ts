@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { JobType, OutboxJob, SendOutcome } from '../outbox/policy';
 import { classify, type ApiFailure } from './classify';
+import { storagePath } from '../media/photo';
 
 /**
  * Turns a queued outbox job into the API call that delivers it.
@@ -74,7 +75,8 @@ export interface Payloads {
   'visit.check_out': { visitId: string; at: string; lat?: number; lng?: number };
   'visit.task_toggle': { visitId: string; taskId: string; completed: boolean; notes?: string; at: string };
   'visit.note': { visitId: string; text: string; transcribed?: boolean; concerns?: string[] };
-  'visit.photo': { visitId: string; fileUrl: string; fileType: string; caption?: string };
+  /** `localUri` for a photo taken offline; `fileUrl` once already uploaded. */
+  'visit.photo': { visitId: string; localUri?: string; fileUrl?: string; fileType: string; caption?: string };
   'medication.record': { medicationId: string; visitId: string; outcome: string; at: string; scheduledTime?: string; refusalReason?: string; notes?: string; witnessedBy?: string };
   'incident.create': { serviceUserId: string; category: string; description: string; isSafeguarding?: boolean; immediateAction?: string };
   'message.send': { body: string; visitId?: string };
@@ -150,14 +152,53 @@ const handlers: Record<JobType, Handler> = {
     return { error };
   },
 
+  /**
+   * Two steps: the file goes to storage, then the row points at it.
+   *
+   * The upload happens HERE, at drain time, rather than when the photo was
+   * taken — that is what makes photos work offline. The carer captures, the
+   * file sits on the device, and it only travels when there is signal.
+   *
+   * `upsert: true` on a path derived from the job id makes the upload
+   * idempotent: a retry after a timeout overwrites the same object instead of
+   * littering the bucket with duplicates.
+   */
   'visit.photo': async (ctx, job, p) => {
+    let fileUrl = (p.fileUrl as string) ?? null;
+
+    if (!fileUrl && p.localUri) {
+      const path = storagePath(ctx.organisationId, p.visitId as string, job.id);
+      try {
+        // React Native cannot read a file:// URI into a Buffer, so fetch it
+        // as a blob — the standard approach for Supabase storage on device.
+        const response = await fetch(p.localUri as string);
+        const blob = await response.blob();
+
+        const { error: uploadError } = await ctx.supabase.storage
+          .from('visit-attachments')
+          .upload(path, blob, {
+            contentType: (p.fileType as string) ?? 'image/jpeg',
+            upsert: true,
+          });
+        if (uploadError) return { error: uploadError as ApiFailure };
+
+        const { data } = ctx.supabase.storage.from('visit-attachments').getPublicUrl(path);
+        fileUrl = data.publicUrl;
+      } catch (e) {
+        // A missing local file is permanent — the OS cleared the cache and no
+        // retry will bring it back. Anything else is worth another go.
+        const message = e instanceof Error ? e.message : String(e);
+        return { error: { status: /no such file|not found/i.test(message) ? 404 : undefined, message } };
+      }
+    }
+
     const { error } = await ctx.supabase.from('visit_attachments').insert({
       id: job.id,
       organisation_id: ctx.organisationId,
       visit_id: p.visitId as string,
       carer_id: ctx.carerId,
-      file_url: p.fileUrl as string,
-      file_type: p.fileType as string,
+      file_url: fileUrl,
+      file_type: (p.fileType as string) ?? 'image/jpeg',
       caption: (p.caption as string) ?? null,
     });
     return { error };

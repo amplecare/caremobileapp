@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 
 import { clearDraft, enqueue, getDraft, saveDraft } from '../../lib/outbox/store';
 import {
@@ -23,6 +24,7 @@ import {
   shouldShowCounter,
   validateNote,
 } from '../../lib/notes/note';
+import { JPEG_QUALITY, MAX_PHOTOS_PER_VISIT, checkSize, formatBytes } from '../../lib/media/photo';
 import { colors, font, radius, touch, type } from '../../theme/tokens';
 
 /**
@@ -52,6 +54,7 @@ export default function NoteScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<Array<{ uri: string; bytes: number }>>([]);
   const inputRef = useRef<TextInput>(null);
 
   // Restore whatever was half-written last time — the whole point of drafts.
@@ -139,6 +142,55 @@ Incident reporting is coming shortly. For now, please ring the office if this ne
     [text, visitId, router],
   );
 
+  /**
+   * Photos are captured now and uploaded later — the file stays on the device
+   * and the outbox pushes it to storage when there is signal. That is what
+   * makes taking a picture of a pressure sore work in a basement flat.
+   */
+  const addPhoto = useCallback(async () => {
+    if (photos.length >= MAX_PHOTOS_PER_VISIT) {
+      setError(`You can attach up to ${MAX_PHOTOS_PER_VISIT} photos to a visit.`);
+      return;
+    }
+
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError('Camera access is off. You can still write the note.');
+      return;
+    }
+
+    const shot = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      // Compress on capture: a raw 12MP JPEG is ~5MB and would strand every
+      // care note queued behind it on a rural connection.
+      quality: JPEG_QUALITY,
+      exif: false,
+    });
+    if (shot.canceled || !shot.assets[0]) return;
+
+    const asset = shot.assets[0];
+    const bytes = asset.fileSize ?? 0;
+    const size = checkSize(bytes);
+    if (!size.ok) {
+      setError(size.reason);
+      return;
+    }
+
+    setPhotos((prev) => [...prev, { uri: asset.uri, bytes }]);
+    Haptics.selectionAsync().catch(() => {});
+
+    try {
+      await enqueue('visit.photo', `visit-${visitId}`, {
+        visitId,
+        localUri: asset.uri,
+        fileType: asset.mimeType ?? 'image/jpeg',
+      });
+    } catch {
+      setPhotos((prev) => prev.filter((p) => p.uri !== asset.uri));
+      setError('That photo did not save. Try again.');
+    }
+  }, [photos.length, visitId]);
+
   const remaining = charsRemaining(text);
 
   return (
@@ -184,6 +236,31 @@ Incident reporting is coming shortly. For now, please ring the office if this ne
             {error}
           </Text>
         )}
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Take a photo for this visit"
+          onPress={() => void addPhoto()}
+          style={({ pressed }) => [styles.photoButton, pressed && { backgroundColor: colors.surfaceSunk }]}
+        >
+          <Text style={styles.photoLabel}>
+            {photos.length === 0
+              ? 'Add a photo'
+              : `Add another photo (${photos.length})`}
+          </Text>
+        </Pressable>
+
+        {photos.map((p) => (
+          <View key={p.uri} style={styles.photoRow}>
+            <Text style={styles.photoName} numberOfLines={1}>
+              {p.uri.split('/').pop()}
+            </Text>
+            {/* Honest: it is on the phone until the outbox drains it. */}
+            <Text style={styles.photoMeta}>
+              {formatBytes(p.bytes)} · Saved on this phone
+            </Text>
+          </View>
+        ))}
 
         {shouldShowCounter(text) && (
           <Text style={[styles.counter, remaining < 0 && { color: colors.alert }]}>
@@ -246,6 +323,26 @@ const styles = StyleSheet.create({
     fontSize: type.small,
     color: colors.alert,
   },
+  photoButton: {
+    marginTop: 14,
+    height: touch.tapLg,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoLabel: { fontFamily: font.semibold, fontSize: type.body, color: colors.ink },
+  photoRow: {
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: radius.card,
+    backgroundColor: colors.surfaceSunk,
+  },
+  photoName: { fontFamily: font.medium, fontSize: type.small, color: colors.ink },
+  photoMeta: { marginTop: 2, fontFamily: font.mono, fontSize: type.micro, color: colors.inkFaint },
   counter: {
     marginTop: 8,
     textAlign: 'right',

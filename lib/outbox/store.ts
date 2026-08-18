@@ -2,6 +2,7 @@ import * as SQLite from 'expo-sqlite';
 import * as Crypto from 'expo-crypto';
 
 import type { JobType, OutboxJob } from './policy';
+import type { VisitTask } from '../tasks/checklist';
 import { SCHEMA_V1, SCHEMA_V2, SCHEMA_V3, SCHEMA_VERSION, SQL } from './sql';
 
 /**
@@ -191,4 +192,59 @@ export async function getDraft(visitId: string): Promise<string | null> {
 export async function clearDraft(visitId: string): Promise<void> {
   const database = await getDb();
   await database.runAsync(SQL.deleteDraft, visitId);
+}
+
+// ---------------------------------------------------------------------------
+// Visit tasks
+// ---------------------------------------------------------------------------
+
+interface TaskRow {
+  id: string;
+  visit_id: string;
+  label: string;
+  sort_order: number;
+  completed_at: number | null;
+  notes: string | null;
+}
+
+/** Tasks for a visit, in care-plan order. Empty until the visit is synced. */
+export async function getTasks(visitId: string): Promise<VisitTask[]> {
+  const database = await getDb();
+  const rows = await database.getAllAsync<TaskRow>(SQL.tasksForVisit, visitId);
+  return rows.map((r) => ({
+    id: r.id,
+    visitId: r.visit_id,
+    label: r.label,
+    sortOrder: r.sort_order,
+    completedAt: r.completed_at,
+    notes: r.notes,
+  }));
+}
+
+/**
+ * Writes the care-plan tasks for a visit.
+ *
+ * Upserts on id, and deliberately does NOT touch `completed_at` — a re-sync
+ * from the server must never un-tick something the carer has already done
+ * offline. Their record wins until the outbox delivers it.
+ */
+export async function putTasks(
+  visitId: string,
+  tasks: Array<{ id: string; label: string; sortOrder: number }>,
+): Promise<void> {
+  const database = await getDb();
+  await database.withTransactionAsync(async () => {
+    for (const t of tasks) {
+      await database.runAsync(SQL.upsertTask, t.id, visitId, t.label, t.sortOrder, null, null);
+    }
+  });
+}
+
+/** Ticks or un-ticks. Passing null clears the completion. */
+export async function setTaskCompleted(
+  taskId: string,
+  completedAt: number | null,
+): Promise<void> {
+  const database = await getDb();
+  await database.runAsync(SQL.setTaskCompleted, completedAt, taskId);
 }

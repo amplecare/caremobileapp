@@ -161,6 +161,15 @@ export default function TodayScreen() {
                   })
               : undefined
           }
+          onOpenTasks={
+            hero.status === 'in_progress'
+              ? () =>
+                  router.push({
+                    pathname: '/tasks/[visitId]',
+                    params: { visitId: hero.id, clientName: hero.clientName },
+                  })
+              : undefined
+          }
         />
       )}
 
@@ -271,17 +280,31 @@ function ActionBar({
   bottomInset,
   onPress,
   onWriteNote,
+  onOpenTasks,
 }: {
   visit: Visit;
   bottomInset: number;
   onPress: () => void;
   /** Absent until the visit is under way — nothing to write about yet. */
   onWriteNote?: () => void;
+  /** Absent until the visit is under way, same as the note button. */
+  onOpenTasks?: () => void;
 }) {
   const label = visit.status === 'in_progress' ? 'Check out' : 'Check in';
 
   return (
     <View style={[styles.actionBar, { paddingBottom: bottomInset + 12 }]}>
+      {onOpenTasks && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open the task checklist for ${visit.clientName}`}
+          onPress={onOpenTasks}
+          style={({ pressed }) => [styles.noteButton, pressed && { backgroundColor: colors.surfaceSunk }]}
+        >
+          <Text style={styles.noteLabel}>Task checklist</Text>
+        </Pressable>
+      )}
+
       {onWriteNote && (
         <Pressable
           accessibilityRole="button"
