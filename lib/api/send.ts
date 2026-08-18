@@ -23,10 +23,49 @@ import { classify, type ApiFailure } from './classify';
  * `visit_notes.note_text`, `medication_administrations.outcome`, and so on.
  */
 
+/**
+ * Two identities, and they are NOT interchangeable.
+ *
+ * The schema separates the login from the employment record:
+ *   users  — the auth identity. `administered_by`, `reported_by`,
+ *            `witnessed_by`, `sender_id` all reference this.
+ *   carers — the employment record, joined by `carers.user_id`. Every
+ *            `carer_id` column in the schema references THIS, not users.
+ *
+ * Sending a users.id where a carers.id belongs is a foreign-key violation on
+ * the very first care note. Live verification caught exactly that; unit tests
+ * against a fake client never could.
+ */
 export interface SendContext {
   supabase: SupabaseClient;
   organisationId: string;
+  /** `users.id` — the signed-in auth identity. */
+  userId: string;
+  /** `carers.id` — the employment record. Resolve once via `resolveCarerId`. */
   carerId: string;
+}
+
+/**
+ * Looks up the `carers` row for a signed-in user.
+ *
+ * Called once after sign-in and cached for the session: it never changes while
+ * a carer is logged in, and the offline queue must not depend on a lookup that
+ * needs the network.
+ *
+ * Returns null for a user with no carer record — an office-only coordinator,
+ * for instance. The UI should refuse to queue carer-scoped work in that case
+ * rather than let the job fail at the database.
+ */
+export async function resolveCarerId(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('carers')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data?.id as string) ?? null;
 }
 
 /** Payload shapes, one per job type. Parsed from the job's JSON payload. */
@@ -132,7 +171,7 @@ const handlers: Record<JobType, Handler> = {
       visit_id: p.visitId as string,
       administered_at: p.at as string,
       scheduled_time: (p.scheduledTime as string) ?? null,
-      administered_by: ctx.carerId,
+      administered_by: ctx.userId,
       outcome: p.outcome as string,
       refusal_reason: (p.refusalReason as string) ?? null,
       notes: (p.notes as string) ?? null,
@@ -146,7 +185,7 @@ const handlers: Record<JobType, Handler> = {
       id: job.id,
       organisation_id: ctx.organisationId,
       service_user_id: p.serviceUserId as string,
-      reported_by: ctx.carerId,
+      reported_by: ctx.userId,
       category: p.category as string,
       description: p.description as string,
       is_safeguarding: Boolean(p.isSafeguarding),
@@ -160,7 +199,7 @@ const handlers: Record<JobType, Handler> = {
     const { error } = await ctx.supabase.from('family_messages').insert({
       id: job.id,
       organisation_id: ctx.organisationId,
-      sender_id: ctx.carerId,
+      sender_id: ctx.userId,
       body: p.body as string,
     });
     return { error };

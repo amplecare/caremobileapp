@@ -9,7 +9,8 @@ import { createSender, supportedJobTypes, type SendContext } from '../lib/api/se
 import type { JobType, OutboxJob } from '../lib/outbox/policy';
 
 const ORG = 'org-1';
-const CARER = 'carer-1';
+const CARER = 'carer-1';   // carers.id
+const USER = 'user-1';     // users.id
 
 interface Call {
   table: string;
@@ -46,7 +47,10 @@ function fakeSupabase(error: unknown = null) {
 
 function ctxFor(error: unknown = null): { ctx: SendContext; calls: Call[] } {
   const { calls, client } = fakeSupabase(error);
-  return { ctx: { supabase: client as never, organisationId: ORG, carerId: CARER }, calls };
+  return {
+    ctx: { supabase: client as never, organisationId: ORG, userId: USER, carerId: CARER },
+    calls,
+  };
 }
 
 function job(type: JobType, payload: unknown, id = 'job-uuid-1'): OutboxJob {
@@ -158,7 +162,8 @@ describe('column mapping', () => {
     expect(calls[0]!.table).toBe('medication_administrations');
     expect(calls[0]!.values.outcome).toBe('refused');
     expect(calls[0]!.values.refusal_reason).toBe('Client asleep');
-    expect(calls[0]!.values.administered_by).toBe(CARER);
+    // users.id, not carers.id — administered_by references users.
+    expect(calls[0]!.values.administered_by).toBe(USER);
   });
 
   test('an incident opens as safeguarding when flagged', async () => {
@@ -172,7 +177,7 @@ describe('column mapping', () => {
 
     expect(calls[0]!.values.is_safeguarding).toBe(true);
     expect(calls[0]!.values.status).toBe('open');
-    expect(calls[0]!.values.reported_by).toBe(CARER);
+    expect(calls[0]!.values.reported_by).toBe(USER);
   });
 
   test('optional fields become null rather than undefined', async () => {
@@ -212,6 +217,7 @@ describe('outcomes', () => {
         },
       } as never,
       organisationId: ORG,
+      userId: USER,
       carerId: CARER,
     };
     const outcome = await createSender(ctx)(job('visit.note', { visitId: 'v1', text: 'x' }));
