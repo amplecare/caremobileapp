@@ -185,6 +185,15 @@ export default function TodayScreen() {
               params: { visitId: hero.id, clientName: hero.clientName },
             })
           }
+          onOpenEmar={
+            hero.status === 'in_progress'
+              ? () =>
+                  router.push({
+                    pathname: '/emar/[visitId]',
+                    params: { visitId: hero.id, clientName: hero.clientName },
+                  })
+              : undefined
+          }
           onOpenTasks={
             hero.status === 'in_progress'
               ? () =>
@@ -305,6 +314,7 @@ function ActionBar({
   onPress,
   onWriteNote,
   onOpenTasks,
+  onOpenEmar,
   onReportIncident,
 }: {
   visit: Visit;
@@ -314,6 +324,8 @@ function ActionBar({
   onWriteNote?: () => void;
   /** Absent until the visit is under way, same as the note button. */
   onOpenTasks?: () => void;
+  /** Business+ tier gates this server-side; the button follows the visit. */
+  onOpenEmar?: () => void;
   /**
    * Always available, unlike the others. Something can go wrong before a
    * carer has checked in — no answer at the door, or found unwell on arrival
@@ -333,6 +345,17 @@ function ActionBar({
       >
         <Text style={styles.incidentLabel}>Report an incident</Text>
       </Pressable>
+
+      {onOpenEmar && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Open the medication chart for ${visit.clientName}`}
+          onPress={onOpenEmar}
+          style={({ pressed }) => [styles.noteButton, pressed && { backgroundColor: colors.surfaceSunk }]}
+        >
+          <Text style={styles.noteLabel}>Medication</Text>
+        </Pressable>
+      )}
 
       {onOpenTasks && (
         <Pressable
