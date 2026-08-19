@@ -31,7 +31,9 @@
         "CAMERA",
         "RECORD_AUDIO",
         "USE_BIOMETRIC",
-        "VIBRATE"
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS"
       ]
     },
     "plugins": [
@@ -64,6 +66,13 @@
         {
           "photosPermission": "Caremango attaches photos to a visit record \u2014 a wound, a meal, or a maintenance issue.",
           "cameraPermission": "Take photos as part of a visit record or an incident report."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0E6E63",
+          "defaultChannel": "routine"
         }
       ]
     ],

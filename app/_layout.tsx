@@ -16,7 +16,12 @@ import {
   IBMPlexMono_600SemiBold,
 } from '@expo-google-fonts/ibm-plex-mono';
 
+import { installForegroundHandler } from '../lib/push/register';
 import { colors } from '../theme/tokens';
+
+// Installed once at module scope: how a notification behaves while the app is
+// open is a property of the app, not of any screen.
+installForegroundHandler();
 
 /**
  * Root layout.
