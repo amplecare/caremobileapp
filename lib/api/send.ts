@@ -81,6 +81,15 @@ export interface Payloads {
   'incident.create': { serviceUserId: string; category: string; description: string; isSafeguarding?: boolean; immediateAction?: string };
   'message.send': { body: string; visitId?: string; toId?: string; isUrgent?: boolean };
   'availability.update': { dayOfWeek: string; startTime: string; endTime: string; effectiveFrom: string };
+  /** DBS certificate, right to work, or a training certificate. */
+  'document.upload': {
+    documentType: string;
+    localUri?: string;
+    fileUrl?: string;
+    fileType: string;
+    name?: string;
+    expiresAt?: string;
+  };
 }
 
 type Handler = (
@@ -255,6 +264,56 @@ const handlers: Record<JobType, Handler> = {
       visit_id: (p.visitId as string) ?? null,
       message: p.body as string,
       is_urgent: Boolean(p.isUrgent),
+    });
+    return { error };
+  },
+
+  /**
+   * A carer photographing their own DBS certificate or passport.
+   *
+   * Same two-step shape as visit photos: the file goes to storage at drain
+   * time, then the row points at it. Filed against the CARER, not a visit —
+   * `documents` is polymorphic, and entity_type 'carer' is what the Agency
+   * Hub's staff profile reads.
+   *
+   * These are identity documents, so they go to the private `staff-documents`
+   * bucket and the row stores the path rather than a public URL. Nobody's
+   * passport should be one guessed URL away from the open internet.
+   */
+  'document.upload': async (ctx, job, p) => {
+    let fileUrl = (p.fileUrl as string) ?? null;
+
+    if (!fileUrl && p.localUri) {
+      const path = `${ctx.organisationId}/${ctx.carerId}/${job.id}`;
+      try {
+        const response = await fetch(p.localUri as string);
+        const blob = await response.blob();
+        const { error: uploadError } = await ctx.supabase.storage
+          .from('staff-documents')
+          .upload(path, blob, {
+            contentType: (p.fileType as string) ?? 'image/jpeg',
+            upsert: true,
+          });
+        if (uploadError) return { error: uploadError as ApiFailure };
+        // Private bucket: store the path, not a public URL.
+        fileUrl = path;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        return { error: { status: /no such file|not found/i.test(message) ? 404 : undefined, message } };
+      }
+    }
+
+    const { error } = await ctx.supabase.from('documents').insert({
+      id: job.id,
+      organisation_id: ctx.organisationId,
+      entity_type: 'carer',
+      entity_id: ctx.carerId,
+      document_type: p.documentType as string,
+      url: fileUrl,
+      uploaded_by: ctx.userId,
+      name: (p.name as string) ?? null,
+      mime_type: (p.fileType as string) ?? null,
+      expires_at: (p.expiresAt as string) ?? null,
     });
     return { error };
   },

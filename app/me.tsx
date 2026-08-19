@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
 
 import { enqueue } from '../lib/outbox/store';
 import {
@@ -30,6 +31,7 @@ import {
   type Day,
 } from '../lib/hr/availability';
 import { bandPresentation, expiryBand, expiryPhrase } from '../lib/hr/expiry';
+import { JPEG_QUALITY, checkSize } from '../lib/media/photo';
 import { colors, font, radius, touch, type } from '../theme/tokens';
 
 /**
@@ -47,11 +49,57 @@ import { colors, font, radius, touch, type } from '../theme/tokens';
 
 /** Placeholder until the profile syncs. */
 const COMPLIANCE = [
-  { label: 'DBS certificate', expiry: '2026-11-02' },
-  { label: 'Right to work', expiry: null },
-  { label: 'Moving & handling', expiry: '2026-09-04' },
-  { label: 'Safeguarding training', expiry: '2027-03-15' },
+  { type: 'dbs', label: 'DBS certificate', expiry: '2026-11-02' },
+  { type: 'right_to_work', label: 'Right to work', expiry: null },
+  { type: 'training', label: 'Moving & handling', expiry: '2026-09-04' },
+  { type: 'training', label: 'Safeguarding training', expiry: '2027-03-15' },
 ];
+
+/**
+ * Photograph an identity document and queue it.
+ *
+ * Goes to the private staff-documents bucket at drain time, exactly like a
+ * visit photo. A carer standing in the office with their passport should not
+ * have to find a scanner.
+ */
+async function uploadDocument(
+  documentType: string,
+  label: string,
+  notify: (message: string) => void,
+): Promise<void> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) {
+    notify('Camera access is off, so the photo could not be taken.');
+    return;
+  }
+
+  const shot = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images'],
+    quality: JPEG_QUALITY,
+    exif: false,
+  });
+  if (shot.canceled || !shot.assets[0]) return;
+
+  const asset = shot.assets[0];
+  const size = checkSize(asset.fileSize ?? 0);
+  if (!size.ok) {
+    notify(size.reason);
+    return;
+  }
+
+  try {
+    await enqueue('document.upload', 'me', {
+      documentType,
+      localUri: asset.uri,
+      fileType: asset.mimeType ?? 'image/jpeg',
+      name: label,
+    });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    notify(`${label} photo saved — it will send when you have signal.`);
+  } catch {
+    notify('That did not save. Please try again.');
+  }
+}
 
 const INITIAL_AVAILABILITY: AvailabilityWindow[] = [
   { id: 'a1', day: 'monday', start: '07:00', end: '14:00' },
@@ -96,16 +144,25 @@ export default function MeScreen() {
           const band = expiryBand(doc.expiry);
           const p = bandPresentation(band);
           return (
-            <View key={doc.label} style={styles.docRow}>
+            <Pressable
+              key={doc.label}
+              accessibilityRole="button"
+              accessibilityLabel={`Upload a photo of your ${doc.label}`}
+              onPress={() => void uploadDocument(doc.type, doc.label, setBanner)}
+              style={({ pressed }) => [styles.docRow, pressed && { backgroundColor: colors.surfaceSunk }]}
+            >
               <View style={[styles.dot, { backgroundColor: p.dot }]} />
               <View style={styles.docText}>
                 <Text style={styles.docLabel}>{doc.label}</Text>
                 <Text style={styles.docExpiry}>{expiryPhrase(doc.expiry)}</Text>
               </View>
               <Text style={[styles.docBadge, { color: p.dot }]}>{p.short}</Text>
-            </View>
+            </Pressable>
           );
         })}
+        <Text style={styles.uploadHint}>
+          Tap a document to send the office a photo of it.
+        </Text>
 
         <Text style={styles.sectionLabel}>MY WEEK</Text>
         <View style={styles.card}>
@@ -397,6 +454,13 @@ const styles = StyleSheet.create({
   docLabel: { fontFamily: font.semibold, fontSize: type.body, color: colors.ink },
   docExpiry: { marginTop: 1, fontFamily: font.regular, fontSize: type.micro, color: colors.inkFaint },
   docBadge: { fontFamily: font.monoBold, fontSize: type.micro },
+  uploadHint: {
+    marginTop: 2,
+    marginBottom: 4,
+    fontFamily: font.regular,
+    fontSize: type.micro,
+    color: colors.inkFaint,
+  },
 
   card: {
     borderWidth: 1,

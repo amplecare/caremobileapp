@@ -269,3 +269,41 @@ describe('message.send — regression', () => {
     expect(calls[0]!.values.is_urgent).toBe(true);
   });
 });
+
+describe('document.upload', () => {
+  test('files against the carer, not a visit', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(
+      job('document.upload', { documentType: 'dbs', fileUrl: 'org/carer/x', fileType: 'image/jpeg' }),
+    );
+
+    const call = calls[0]!;
+    expect(call.table).toBe('documents');
+    expect(call.values.entity_type).toBe('carer');
+    expect(call.values.entity_id).toBe(CARER);
+  });
+
+  test('records the document type and expiry so the office can track renewal', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(
+      job('document.upload', {
+        documentType: 'right_to_work',
+        fileUrl: 'org/carer/y',
+        fileType: 'image/jpeg',
+        expiresAt: '2027-01-31',
+      }),
+    );
+    expect(calls[0]!.values.document_type).toBe('right_to_work');
+    expect(calls[0]!.values.expires_at).toBe('2027-01-31');
+  });
+
+  /** uploaded_by is a users.id; entity_id is a carers.id. Not interchangeable. */
+  test('uploaded_by is the auth identity, entity_id the employment record', async () => {
+    const { ctx, calls } = ctxFor();
+    await createSender(ctx)(
+      job('document.upload', { documentType: 'dbs', fileUrl: 'x', fileType: 'image/jpeg' }),
+    );
+    expect(calls[0]!.values.uploaded_by).toBe(USER);
+    expect(calls[0]!.values.entity_id).toBe(CARER);
+  });
+});

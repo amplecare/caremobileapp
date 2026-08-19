@@ -23,7 +23,8 @@ export type JobType =
   | 'medication.record'
   | 'incident.create'
   | 'message.send'
-  | 'availability.update';
+  | 'availability.update'
+  | 'document.upload';
 
 export type JobStatus = 'queued' | 'sending' | 'failed' | 'blocked';
 
