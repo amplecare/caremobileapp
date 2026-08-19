@@ -140,6 +140,15 @@ export default function TodayScreen() {
             >
               <Text style={styles.messageChipText}>Office</Text>
             </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="My availability, time off and mileage"
+              onPress={() => router.push('/me')}
+              hitSlop={8}
+              style={({ pressed }) => [styles.messageChip, pressed && { backgroundColor: colors.surfaceSunk }]}
+            >
+              <Text style={styles.messageChipText}>Me</Text>
+            </Pressable>
             <SyncBadge state="synced" />
           </View>
         </View>
